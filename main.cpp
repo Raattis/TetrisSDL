@@ -9,6 +9,14 @@
 
 #include <SDL/SDL.h>
 
+
+// DELETE
+#ifndef FB_BUILD
+	namespace math { struct VC2 { VC2(float x, float y): x(x), y(y) {} float x; float y; }; };
+	#define FB_PRINT(fmt) std::cout << fmt;
+	#define FB_PRINTF(fmt, asdf) printf(fmt, asdf);
+#endif
+
 class Tetris
 {
 	typedef int8_t intris;
@@ -41,20 +49,16 @@ class Tetris
 
 		void turn()
 		{
-			if (bt == O)
-			{ } // Square doesn't turn
-			else if (bt > Z || ++rotation <= maxRot)
-			{ // Normal turning if maxRot hasn't been reached or Piece is L,J or T.
-				 turn_();
-			}
-			else
-			{ // I, S & Z Pieces skip from second to first rotation.
-				rotation = 0; turn_(); turn_(); turn_();
-			}
+			do
+            {
+               turn_();
+            }
+            while(rotation > maxRot);
 		}
 
 		void turn_()
 		{
+		    rotation = ++rotation % 4;
 			for(int i = 0; i < 4; ++i)
 			{
                 poss[i] = Pos( -poss[i].y, poss[i].x );
@@ -178,6 +182,7 @@ public:
 		for(int i = 0; i < 10; ++i) for(int j = 0; j < 22; ++j) field[i][j] = E;
 	}
 
+    int getScore() { return score; }
 	// Game is over when this is true. Read-only usage.
 	bool gameOver;
 
@@ -203,9 +208,12 @@ public:
 		if(d < 3) // Move
 		{
 			Pos oldPos = piecePos;
-				 if(d == 0) piecePos = Pos(piecePos.x - 1, piecePos.y    );
-			else if(d == 1) piecePos = Pos(piecePos.x + 1, piecePos.y    );
-			else if(d == 2) { piecePos = Pos(piecePos.x,     piecePos.y - 1); dropTime = getDropDelay(); }
+				 if(d == 0)
+                  piecePos = Pos(piecePos.x - 1, piecePos.y    );
+			else if(d == 1)
+                  piecePos = Pos(piecePos.x + 1, piecePos.y    );
+			else if(d == 2)
+                { piecePos = Pos(piecePos.x,     piecePos.y - 1); dropTime = getDropDelay(); }
 			if(pieceCollides())
 			{
 				piecePos = oldPos;
@@ -239,14 +247,8 @@ public:
 		return true;
 	}
 
-// DELETE
-#ifndef FB_BUILD
-	struct math { struct VC2 { VC2(float x,float y):x(x),y(y){} float x; float y; }; };
-	#define FB_PRINTF(fmt) std::cout << fmt;
-#endif
-
 	// Convert Pos to math::VC2, for output
-	static math::VC2 getVC2(int x, int y) { return math::VC2((x)/10.0f, (y)/22.0f); }
+	static math::VC2 getVC2(int x, int y) { return math::VC2(x/10.0f, y/22.0f); }
 
 	// Returns every block position in field and in the dropping block.
 	// arg: position vector for the result
@@ -280,12 +282,12 @@ public:
 
 		for(int j = 21; j >= 0; --j)
 		{
-			FB_PRINTF("<");
+			FB_PRINT("<");
 			for(int i = 0; i < 10; ++i)
 			{
 				if(field[i][j] != E)
 				{
-					FB_PRINTF("O");
+					FB_PRINT("O");
 					continue;
 				}
 				bool hit = false;
@@ -294,14 +296,14 @@ public:
 					if(poss[k].x == i && poss[k].y == j)
 					{
 						hit = true;
-						FB_PRINTF("X");
+						FB_PRINT("X");
 						break;
 					}
 				}
 				if(!hit)
-					FB_PRINTF(" ");
+					FB_PRINT(" ");
 			}
-			FB_PRINTF(">\n");
+			FB_PRINT(">\n");
 		}
 	}
 };
@@ -320,8 +322,10 @@ int main(int argc, char** argv)
     // make sure SDL cleans up before exit
     atexit(SDL_Quit);
 
+    math::VC2 resolution = math::VC2(300, 660);
+
     // create a new window
-    SDL_Surface* screen = SDL_SetVideoMode(640, 480, 16, SDL_HWSURFACE|SDL_DOUBLEBUF);
+    SDL_Surface* screen = SDL_SetVideoMode(resolution.x, resolution.y, 16, SDL_HWSURFACE|SDL_DOUBLEBUF);
 	//SDL_Surface* screen = NULL;
     if ( !screen )
     {
@@ -338,20 +342,21 @@ int main(int argc, char** argv)
     }
 
     // centre the bitmap on screen
-    SDL_Rect dstrect;
-    dstrect.x = (screen->w - bmp->w) / 2;
-    dstrect.y = (screen->h - bmp->h) / 2;
+    SDL_Rect bgrect;
+    bgrect.x = (screen->w - bmp->w) / 2;
+    bgrect.y = (screen->h - bmp->h) / 2;
 
     Uint32 time = SDL_GetTicks();
 
-	Tetris t = Tetris(42);
-
     bool done = false;
-    while (!done && !t.gameOver)
+    Tetris t = Tetris(42);
+    while(!done)
     {
-    	Uint32 oldTime = time;
-    	time = SDL_GetTicks();
-    	float deltaTime = (time - oldTime) / 1000.0f; // Elapsed time in seconds
+        if(t.gameOver)
+        {
+            FB_PRINTF("Score: %s\n", t.getScore());
+            t = Tetris(time);
+        }
 
         // Keyboard input
         SDL_Event event;
@@ -361,42 +366,50 @@ int main(int argc, char** argv)
             {
             case SDL_QUIT: done = true; break;
             case SDL_KEYDOWN:
-				switch (event.key.keysym.sym)
-				{
-					case SDLK_ESCAPE: done = true; break;
-					case SDLK_LEFT: t.input(0); break;
-					case SDLK_RIGHT: t.input(1); break;
-					case SDLK_DOWN: t.input(2); break;
-					case SDLK_UP: t.input(3); break;
-					case SDLK_SPACE: t.input(3); break;
-					default: break;
-				}
-				break;
+                switch (event.key.keysym.sym)
+                {
+                    case SDLK_ESCAPE: done = true; break;
+                    case SDLK_LEFT: t.input(0); break;
+                    case SDLK_RIGHT: t.input(1); break;
+                    case SDLK_DOWN: t.input(2); break;
+                    case SDLK_UP: t.input(4); break;
+                    case SDLK_SPACE: t.input(3); break;
+                    default: break;
+                }
+                break;
             }
         }
 
-		t.update(deltaTime);
+        Uint32 oldTime = time;
+        time = SDL_GetTicks();
+        float deltaTime = (time - oldTime) / 1000.0f; // Elapsed time in seconds
+
+        t.update(deltaTime);
 
         // DRAWING STARTS HERE
+        {
+            SDL_FillRect(screen, 0, SDL_MapRGB(screen->format, 0, 0, 0));
+            SDL_BlitSurface(bmp, 0, screen, &bgrect);
+            Uint32 c = SDL_MapRGB(screen->format, 255, 255, 255);
 
-        // clear screen
-        SDL_FillRect(screen, 0, SDL_MapRGB(screen->format, 0, 0, 0));
-
-        // draw bitmap
-        SDL_BlitSurface(bmp, 0, screen, &dstrect);
-
+            std::vector<math::VC2> blocks;
+            t.getPositions(blocks);
+            SDL_Rect r = {1,1,resolution.x / 10,resolution.y / 22};
+            for(Uint32 i = 0; i < blocks.size(); ++i)
+            {
+                r.x = resolution.x * blocks[i].x + 0.5;
+                r.y = resolution.y-resolution.y * blocks[i].y - r.h + 0.5;
+                printf("%d, %d\n", r.x, r.y);
+                SDL_FillRect(screen, &r, c);
+            }
+            SDL_Flip(screen);
+        }
         // DRAWING ENDS HERE
 
-        // finally, update the screen :)
-        SDL_Flip(screen);
-        SDL_Delay(16);
+        SDL_Delay(8);
     } // end main loop
 
-	t.printAscii();
-
-	std::cout << "EXIT";
-	printf("Exit\n");
-    // free loaded bitmap
     SDL_FreeSurface(bmp);
+    // free loaded bitmap
 	return 0;
 }
