@@ -58,7 +58,8 @@ class Tetris
 
 		void turn_()
 		{
-		    rotation = ++rotation % 4;
+		    intris temp = (++rotation) % 4;
+		    rotation = temp;
 			for(int i = 0; i < 4; ++i)
 			{
                 poss[i] = Pos( -poss[i].y, poss[i].x );
@@ -167,6 +168,9 @@ class Tetris
 	}
 
 public:
+    std::vector<int8_t> input_record;
+    int seedNumber;
+
 	// Gimme your seed!
 	Tetris(int seed = 41)
 		: seed1(seed + 1)
@@ -177,6 +181,8 @@ public:
 		, dropTime(1)
 		, linesDestroyed(0)
 		, score(0)
+		, input_record()
+		, seedNumber(seed)
 		, gameOver(false)
 	{
 		for(int i = 0; i < 10; ++i) for(int j = 0; j < 22; ++j) field[i][j] = E;
@@ -188,15 +194,16 @@ public:
 
 	// Update, called as often as the user desires. DeltaTime is the time between calls.
 	// arg: deltaTime should be the time between update-calls
-	void update(float deltaTime)
+	bool update(float deltaTime)
 	{
-		if(gameOver) return;
+		if(gameOver) return false;
 		dropTime -= deltaTime;
 		if(dropTime <= 0)
 		{
 			dropTime = getDropDelay();
-			input(2);
+			return input(2);
 		}
+		return false;
 	}
 
 	// User input, called as often as there is user input.
@@ -205,27 +212,25 @@ public:
 	bool input(int d)
 	{
 		if(gameOver) return false;
+		if(d != 3)
+            input_record.push_back(d);
+
 		if(d < 3) // Move
 		{
 			Pos oldPos = piecePos;
 				 if(d == 0)
-                  piecePos = Pos(piecePos.x - 1, piecePos.y    );
+                piecePos.x -= 1;
 			else if(d == 1)
-                  piecePos = Pos(piecePos.x + 1, piecePos.y    );
-			else if(d == 2)
-                { piecePos = Pos(piecePos.x,     piecePos.y - 1); dropTime = getDropDelay(); }
+                piecePos.x += 1;
+			else
+                { piecePos.y -= 1; dropTime = getDropDelay(); }
 			if(pieceCollides())
 			{
 				piecePos = oldPos;
 				if(d == 2)
 				{
 					glueBlock();
-                    if(pieceCollides())
-					{
-						gameOver = true;
-						pieceCollides();
-					}
-
+                    if(pieceCollides()) gameOver = true;
 				}
 				return false;
 			}
@@ -233,8 +238,7 @@ public:
 		}
 		if(d == 3) // Drop
 		{
-			int escape = 40;
-			while(input(2) && --escape > 0);
+		    while(input(2));
 			return false;
 		}
 		intris oldRot = p.rotation;
@@ -252,7 +256,7 @@ public:
 
 	// Returns every block position in field and in the dropping block.
 	// arg: position vector for the result
-	void getPositions(std::vector<math::VC2>& result)
+	void getFieldPositions(std::vector<math::VC2>& result)
 	{
 		for(int j = 21; j >= 0; --j)
 		{
@@ -264,6 +268,10 @@ public:
 				}
 			}
 		}
+	}
+
+	void getPiecePositions(std::vector<math::VC2>& result)
+	{
 		for(int i = 0; i < 4; ++i)
 		{
 			Pos pos = getPPos(i);
@@ -308,6 +316,56 @@ public:
 	}
 };
 
+void playback(SDL_Surface* screen, int seedNumber, std::vector<int8_t> record)
+{
+    math::VC2 resolution = math::VC2(screen->w, screen->h);
+    SDL_Rect r = {1,1,(Uint16)(resolution.x / 10), (Uint16)(resolution.y / 22)};
+
+    Uint32 c = SDL_MapRGB(screen->format, 255, 255, 255);
+    Uint32 p = SDL_MapRGB(screen->format, 190, 255, 200);
+
+    Tetris t = Tetris(seedNumber);
+    for(Uint32 i = 0; i < record.size(); ++i)
+    {
+        SDL_Delay(record[i] == 2 ? 10 : 100);
+        t.input((int)(record[i]));
+        printf("%d\r\n", record[i]);
+
+        SDL_FillRect(screen, 0, SDL_MapRGB(screen->format, 0, 0, 0));
+        //SDL_BlitSurface(bmp, 0, screen, &bgrect);
+
+        std::vector<math::VC2> blocks;
+        t.getFieldPositions(blocks);
+        for(Uint32 i = 0; i < blocks.size(); ++i)
+        {
+            r.x = resolution.x * blocks[i].x + 0.5;
+            r.y = resolution.y-resolution.y * blocks[i].y - r.h + 0.5;
+            SDL_FillRect(screen, &r, c);
+        }
+        printf("\n");
+        blocks.clear();
+        t.getPiecePositions(blocks);
+        for(Uint32 i = 0; i < blocks.size(); ++i)
+        {
+            r.x = resolution.x * blocks[i].x + 0.5;
+            r.y = std::max(resolution.y - resolution.y * blocks[i].y - r.h + 0.5f, 0.0f);
+            SDL_FillRect(screen, &r, p);
+        }
+
+        SDL_Event event;
+        while (SDL_PollEvent(&event))
+        {
+            switch (event.type)
+            {
+                case SDL_QUIT: return;
+                case SDL_KEYDOWN: if(event.key.keysym.sym == SDLK_ESCAPE) return;
+                default: break;
+            }
+        }
+        SDL_Flip(screen);
+    }
+}
+
 
 int main(int argc, char** argv)
 {
@@ -348,14 +406,17 @@ int main(int argc, char** argv)
 
     Uint32 time = SDL_GetTicks();
 
+    bool movementHappened = true;
     bool done = false;
     Tetris t = Tetris(42);
     while(!done)
     {
         if(t.gameOver)
         {
-            FB_PRINTF("Score: %s\n", t.getScore());
+            playback(screen, t.seedNumber, t.input_record);
+            FB_PRINTF("Score: %d\n", t.getScore());
             t = Tetris(time);
+            movementHappened = true;
         }
 
         // Keyboard input
@@ -366,15 +427,21 @@ int main(int argc, char** argv)
             {
             case SDL_QUIT: done = true; break;
             case SDL_KEYDOWN:
+                int input = -1;
                 switch (event.key.keysym.sym)
                 {
                     case SDLK_ESCAPE: done = true; break;
-                    case SDLK_LEFT: t.input(0); break;
-                    case SDLK_RIGHT: t.input(1); break;
-                    case SDLK_DOWN: t.input(2); break;
-                    case SDLK_UP: t.input(4); break;
-                    case SDLK_SPACE: t.input(3); break;
+                    case SDLK_LEFT:  input = 0; break; // Move left
+                    case SDLK_RIGHT: input = 1; break; // Move right
+                    case SDLK_DOWN:  input = 2; break; // Move down
+                    case SDLK_SPACE: input = 3; break; // Drop
+                    case SDLK_UP:    input = 4; break; // Rotate
                     default: break;
+                }
+                if(input != -1)
+                {
+                    t.input(input);
+                    movementHappened = true;
                 }
                 break;
             }
@@ -384,25 +451,36 @@ int main(int argc, char** argv)
         time = SDL_GetTicks();
         float deltaTime = (time - oldTime) / 1000.0f; // Elapsed time in seconds
 
-        t.update(deltaTime);
+        movementHappened = movementHappened || t.update(deltaTime);
 
         // DRAWING STARTS HERE
+        if(movementHappened)
         {
+            movementHappened = false;
             SDL_FillRect(screen, 0, SDL_MapRGB(screen->format, 0, 0, 0));
             SDL_BlitSurface(bmp, 0, screen, &bgrect);
-            Uint32 c = SDL_MapRGB(screen->format, 255, 255, 255);
+            Uint32 c = SDL_MapRGB(screen->format, (time + 100)%256, (time + 200)%256, time%256);
+            Uint32 p = SDL_MapRGB(screen->format, 190, 255, 200);
 
             std::vector<math::VC2> blocks;
-            t.getPositions(blocks);
-            SDL_Rect r = {1,1,resolution.x / 10,resolution.y / 22};
+            t.getFieldPositions(blocks);
+            SDL_Rect r = {1,1,(Uint16)(resolution.x / 10), (Uint16)(resolution.y / 22)};
             for(Uint32 i = 0; i < blocks.size(); ++i)
             {
                 r.x = resolution.x * blocks[i].x + 0.5;
                 r.y = resolution.y-resolution.y * blocks[i].y - r.h + 0.5;
-                printf("%d, %d\n", r.x, r.y);
                 SDL_FillRect(screen, &r, c);
             }
+            blocks.clear();
+            t.getPiecePositions(blocks);
+            for(Uint32 i = 0; i < blocks.size(); ++i)
+            {
+                r.x = resolution.x * blocks[i].x + 0.5;
+                r.y = resolution.y-resolution.y * blocks[i].y - r.h + 0.5;
+                SDL_FillRect(screen, &r, p);
+            }
             SDL_Flip(screen);
+
         }
         // DRAWING ENDS HERE
 
